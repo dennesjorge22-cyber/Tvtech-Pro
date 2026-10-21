@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CineStream IPTV Player</title>
+  
+  <!-- HLS Player para reproduzir .m3u8 -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <!-- Ícones -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <style>
+    :root {
+      --bg-dark: #080c14;
+      --bg-surface: #101726;
+      --bg-hover: #1e293b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --accent-live: #ef4444;
+      --accent-vod: #8b5cf6;
+      --accent-series: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.12);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* Foco para Android TV / D-Pad */
+    .focusable:focus, .focusable.focused {
+      outline: 3px solid #60a5fa !important;
+      transform: scale(1.02);
+      z-index: 10;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+    }
+
+    /* Topbar */
+    header {
+      height: 60px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .brand i {
+      color: #3b82f6;
+      font-size: 1.6rem;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .clock {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .btn {
+      background: var(--bg-surface);
+      color: #fff;
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn:active {
+      transform: scale(0.96);
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: #3b82f6;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background: var(--accent-live);
+      border-color: #f87171;
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .view {
+      position: absolute;
+      inset: 0;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.15s ease-in-out;
+    }
+
+    .view.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    /* TELA PRINCIPAL */
+    #home-view {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      gap: 25px;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      width: 100%;
+      max-width: 1050px;
+      height: 340px;
+    }
+
+    .nav-card {
+      background: var(--bg-surface);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+
+    .nav-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 5px;
+    }
+
+    .nav-card.live::before { background: var(--accent-live); }
+    .nav-card.vod::before { background: var(--accent-vod); }
+    .nav-card.series::before { background: var(--accent-series); }
+
+    .nav-card i {
+      font-size: 4rem;
+      margin-bottom: 14px;
+    }
+
+    .nav-card.live i { color: var(--accent-live); }
+    .nav-card.vod i { color: var(--accent-vod); }
+    .nav-card.series i { color: var(--accent-series); }
+
+    .nav-card h2 {
+      font-size: 1.6rem;
+      margin-bottom: 6px;
+    }
+
+    .nav-card span {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .home-buttons {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* TELA TV AO VIVO */
+    #live-view {
+      flex-direction: row;
+    }
+
+    .sidebar-cats {
+      width: 240px;
+      background: #0b101a;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-channels {
+      width: 320px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .player-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+    }
+
+    .column-title {
+      padding: 14px 18px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .scroll-list {
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+    }
+
+    .list-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      font-size: 0.9rem;
+    }
+
+    .list-item:hover, .list-item.active {
+      background: var(--bg-hover);
+    }
+
+    .sidebar-cats .list-item.active {
+      border-left: 4px solid var(--primary);
+      color: #60a5fa;
+    }
+
+    .sidebar-channels .list-item.active {
+      border-left: 4px solid var(--accent-live);
+    }
+
+    .ch-logo {
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      background: #000;
+      object-fit: contain;
+    }
+
+    .video-wrapper {
+      flex: 1;
+      position: relative;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .player-bar {
+      height: 85px;
+      background: #0b101a;
+      padding: 12px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .player-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* TELA FILMES & SÉRIES */
+    .media-view {
+      flex-direction: column;
+      padding: 24px;
+      overflow-y: auto;
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 18px;
+      margin-top: 15px;
+    }
+
+    .media-card {
+      aspect-ratio: 2/3;
+      background: var(--bg-surface);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .media-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .media-info {
+      position: absolute;
+      bottom: 0;
+      inset-inline: 0;
+      padding: 30px 10px 10px;
+      background: linear-gradient(to top, rgba(0,0,0,0.95), transparent);
+      text-align: center;
+    }
+
+    .media-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* MODAL DE ADICIONAR M3U (Z-INDEX 999999) */
+    #playlist-modal {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 999999;
+    }
+
+    #playlist-modal.active {
+      display: flex !important;
+    }
+
+    .modal-box {
+      background: var(--bg-surface);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      width: 90%;
+      max-width: 520px;
+      padding: 24px;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.8);
+    }
+
+    .modal-box h2 {
+      font-size: 1.3rem;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 8px 14px;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+
+    .tab-btn.active {
+      background: var(--bg-hover);
+      color: #60a5fa;
+    }
+
+    .tab-pane {
+      display: none;
+    }
+
+    .tab-pane.active {
+      display: block;
+    }
+
+    .input-box {
+      width: 100%;
+      padding: 12px;
+      background: #090d15;
+      border: 1px solid var(--border);
+      color: #fff;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      margin-bottom: 12px;
+    }
+
+    textarea.input-box {
+      height: 110px;
+      resize: none;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    /* Responsividade */
+    @media (max-width: 768px) {
+      .cards-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      #live-view {
+        flex-direction: column;
+      }
+      .sidebar-cats, .sidebar-channels {
+        width: 100%;
+        max-height: 160px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <!-- Barra Superior -->
+    <header>
+      <div class="brand">
+        <i class="ph ph-television"></i>
+        <span>CINESTREAM</span>
+      </div>
+      <div class="header-actions">
+        <span class="clock" id="clock">00:00</span>
+        <button class="btn focusable" id="btn-top-home">
+          <i class="ph ph-house"></i> Início
+        </button>
+        <button class="btn btn-primary focusable" id="btn-top-add-m3u">
+          <i class="ph ph-plus-circle"></i> Adicionar Lista
+        </button>
+      </div>
+    </header>
+
+    <!-- Visualizações Principais -->
+    <main>
+      <!-- Tela 1: Dashboard Inicial -->
+      <section id="home-view" class="view active">
+        <div class="cards-grid">
+          <div class="nav-card live focusable" tabindex="0" id="card-btn-live">
+            <i class="ph ph-broadcast"></i>
+            <h2>TV AO VIVO</h2>
+            <span id="txt-count-live">0 canais</span>
+          </div>
+          <div class="nav-card vod focusable" tabindex="0" id="card-btn-vod">
+            <i class="ph ph-film-strip"></i>
+            <h2>FILMES</h2>
+            <span id="txt-count-vod">0 títulos</span>
+          </div>
+          <div class="nav-card series focusable" tabindex="0" id="card-btn-series">
+            <i class="ph ph-popcorn"></i>
+            <h2>SÉRIES</h2>
+            <span id="txt-count-series">0 títulos</span>
+          </div>
+        </div>
+
+        <div class="home-buttons">
+          <button class="btn btn-primary focusable" id="btn-home-open-modal">
+            <i class="ph ph-playlist"></i> Inserir Lista M3U
+          </button>
+          <button class="btn focusable" id="btn-home-load-demo">
+            <i class="ph ph-sparkle"></i> Canais Demo Gratuitos
+          </button>
+        </div>
+      </section>
+
+      <!-- Tela 2: TV ao Vivo + Player -->
+      <section id="live-view" class="view">
+        <div class="sidebar-cats">
+          <div class="column-title">Categorias</div>
+          <ul class="scroll-list" id="cat-list"></ul>
+        </div>
+        <div class="sidebar-channels">
+          <div class="column-title">Canais</div>
+          <ul class="scroll-list" id="channel-list"></ul>
+        </div>
+        <div class="player-area">
+          <div class="video-wrapper">
+            <video id="video-player" playsinline></video>
+          </div>
+          <div class="player-bar">
+            <div>
+              <h3 id="now-playing-title" style="font-size: 1.1rem; margin-bottom: 4px;">Nenhum canal ativo</h3>
+              <p id="now-playing-group" style="color: var(--text-muted); font-size: 0.85rem;">Ao Vivo</p>
+            </div>
+            <div class="player-controls">
+              <button class="btn focusable" id="btn-play-pause">
+                <i class="ph ph-play" id="icon-play-pause"></i>
+              </button>
+              <button class="btn focusable" id="btn-mute">
+                <i class="ph ph-speaker-high" id="icon-mute"></i>
+              </button>
+              <button class="btn focusable" id="btn-fullscreen">
+                <i class="ph ph-corners-out"></i> Tela Cheia
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tela 3: Filmes -->
+      <section id="vod-view" class="view media-view">
+        <h2>Filmes On Demand</h2>
+        <div class="media-grid" id="vod-grid"></div>
+      </section>
+
+      <!-- Tela 4: Séries -->
+      <section id="series-view" class="view media-view">
+        <h2>Séries de TV</h2>
+        <div class="media-grid" id="series-grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- JANELA MODAL DE IMPORTAÇÃO M3U -->
+  <div id="playlist-modal">
+    <div class="modal-box">
+      <h2><i class="ph ph-playlist"></i> Carregar Lista M3U</h2>
+      
+      <div class="modal-tabs">
+        <button class="tab-btn active" data-tab="tab-url">Por URL</button>
+        <button class="tab-btn" data-tab="tab-file">Arquivo Local</button>
+        <button class="tab-btn" data-tab="tab-text">Colar Texto</button>
+      </div>
+
+      <!-- Aba 1: URL -->
+      <div class="tab-pane active" id="tab-url">
+        <input type="text" id="m3u-url-input" class="input-box" placeholder="https://provedor.com/get.php?username=...&type=m3u">
+        <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: -6px; margin-bottom: 12px;">
+          <input type="checkbox" id="check-cors" checked> Usar Proxy Anti-CORS (Garante o download sem bloqueios)
+        </label>
+      </div>
+
+      <!-- Aba 2: Arquivo Local -->
+      <div class="tab-pane" id="tab-file">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Escolha o arquivo .m3u ou .m3u8 do aparelho:</p>
+        <input type="file" id="m3u-file-input" accept=".m3u,.m3u8,.txt" class="input-box">
+      </div>
+
+      <!-- Aba 3: Colar Conteúdo -->
+      <div class="tab-pane" id="tab-text">
+        <textarea id="m3u-text-input" class="input-box" placeholder="Cole o conteúdo iniciado em #EXTM3U..."></textarea>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn focusable" id="btn-modal-cancel">Cancelar</button>
+        <button class="btn btn-primary focusable" id="btn-modal-load">Processar e Carregar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Estado Geral da Aplicação
+    const store = {
+      channels: [],
+      vod: [],
+      series: [],
+      categories: new Set()
+    };
+
+    let hls = null;
+    const player = document.getElementById('video-player');
+
+    // Relógio
+    function runClock() {
+      const el = document.getElementById('clock');
+      setInterval(() => {
+        const d = new Date();
+        el.innerText = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      }, 1000);
+    }
+
+    // Modal: Abertura e Fechamento
+    function openModal() {
+      const modal = document.getElementById('playlist-modal');
+      modal.classList.add('active');
+    }
+
+    function closeModal() {
+      const modal = document.getElementById('playlist-modal');
+      modal.classList.remove('active');
+    }
+
+    // Navegação entre Telas
+    function showView(viewId) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const activeScreen = document.getElementById(`${viewId}-view`);
+      if (activeScreen) activeScreen.classList.add('active');
+
+      if (viewId !== 'live' && !player.paused) {
+        player.pause();
+      }
+    }
+
+    // Parser M3U
+    function parseM3UText(content) {
+      const lines = content.split(/\r?\n/);
+      const items = [];
+      let temp = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith('#EXTINF:')) {
+          temp = {};
+          const commaIdx = line.indexOf(',');
+          temp.name = commaIdx !== -1 ? line.substring(commaIdx + 1).trim() : "Sem Título";
+
+          const groupMatch = line.match(/group-title="([^"]+)"/i);
+          temp.group = groupMatch ? groupMatch[1] : "Geral";
+
+          const logoMatch = line.match(/tvg-logo="([^"]+)"/i);
+          temp.logo = logoMatch ? logoMatch[1] : "";
+        } else if (line && !line.startsWith('#')) {
+          if (temp) {
+            temp.url = line;
+            items.push(temp);
+            temp = null;
+          }
+        }
+      }
+      return items;
+    }
+
+    // Processar e Distribuir Dados
+    function loadPlaylistData(rawText) {
+      const items = parseM3UText(rawText);
+      if (!items || items.length === 0) {
+        alert("Nenhum item válido encontrado nesta lista.");
+        return;
+      }
+
+      store.channels = [];
+      store.vod = [];
+      store.series = [];
+      store.categories.clear();
+
+      items.forEach(it => {
+        const grp = (it.group || "").toLowerCase();
+        const nm = (it.name || "").toLowerCase();
+
+        if (grp.includes('filme') || grp.includes('movie') || it.url.endsWith('.mp4') || it.url.endsWith('.mkv')) {
+          store.vod.push(it);
+        } else if (grp.includes('serie') || grp.includes('série') || nm.match(/s\d+\s?e\d+/i)) {
+          store.series.push(it);
+        } else {
+          store.channels.push(it);
+          store.categories.add(it.group);
+        }
+      });
+
+      // Atualiza Contadores
+      document.getElementById('txt-count-live').innerText = `${store.channels.length} canais`;
+      document.getElementById('txt-count-vod').innerText = `${store.vod.length} títulos`;
+      document.getElementById('txt-count-series').innerText = `${store.series.length} títulos`;
+
+      // Renderiza as Telas
+      renderLiveScreen();
+      renderVodScreen();
+      renderSeriesScreen();
+
+      // Salva em cache
+      try {
+        if (rawText.length < 3500000) {
+          localStorage.setItem('iptv_cache_m3u', rawText);
+        }
+      } catch (err) {}
+
+      closeModal();
+      alert(`Lista importada com sucesso!\n${store.channels.length} canais prontos para reproduzir.`);
+    }
+
+    // Renderizar TV ao Vivo
+    function renderLiveScreen() {
+      const catList = document.getElementById('cat-list');
+      catList.innerHTML = '';
+
+      const categories = ['Todos', ...Array.from(store.categories)];
+      categories.forEach((cat, idx) => {
+        const li = document.createElement('li');
+        li.className = `list-item focusable ${idx === 0 ? 'active' : ''}`;
+        li.innerHTML = `<i class="ph ph-folder"></i> <span>${cat}</span>`;
+        li.onclick = () => {
+          document.querySelectorAll('.sidebar-cats .list-item').forEach(el => el.classList.remove('active'));
+          li.classList.add('active');
+          renderChannelList(cat);
+        };
+        catList.appendChild(li);
+      });
+
+      renderChannelList('Todos');
+    }
+
+    function renderChannelList(category) {
+      const chList = document.getElementById('channel-list');
+      chList.innerHTML = '';
+
+      const filtered = category === 'Todos'
+        ? store.channels
+        : store.c
